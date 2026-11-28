@@ -77,5 +77,34 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 用电核验与调试放行
+
+用电配置本身只做即时容量核对（设计负荷 vs 回路额定功率之和），不沉淀结论。
+核验通过后由「出具核验回执」动作生成**用电核验回执**，把当时的设计负荷、各回路
+额定功率与核验结论固化为快照；影音布置的「调试设备」必须消费一张有效核验回执，
+并生成**调试放行回执**占用回路额度。规则集中在 `app/services/power_receipt.py`：
+
+- 一个回路在同一时段只能有一个有效放行额度（占用中的放行回执），重复办理直接拒绝。
+- 设计负荷下调导致核验结论由通过变超限时，原核验回执标记**失效**，编号与负荷明细
+  仍可按原编号反查；已开始的试音不中断，允许登记完成记录并结清，但失效额度不能再
+  办新的试音。
+- 失效期间登记的完成记录自动挂「需复核」标记，结清释放后标记保留，复核人取影音
+  设备负责人。
+- 回路占用核对接口返回回执与用电侧占用是否一致、额度何时释放、谁需要复核旧记录。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/exhibition/power/receipts` | 核验回执清单（可按展位/回路/状态/编号过滤） |
+| `GET /api/exhibition/power/receipts/by-no/{回执编号}` | 审核员按原编号查当时负荷明细 |
+| `POST /api/exhibition/power/receipts/{id}/reissue` | 从新单对同一回路重新核验 |
+| `POST /api/exhibition/power/releases` | 基于有效核验回执办理调试放行（占用额度） |
+| `POST /api/exhibition/power/releases/{id}/completion` | 登记试音完成记录（只做收尾） |
+| `POST /api/exhibition/power/releases/{id}/settle` | 结清占用并释放回路 |
+| `POST /api/exhibition/power/design/{id}/load-change` | 设计负荷变更，联动失效超限回执 |
+| `GET /api/exhibition/power/circuit/{回路编号}/occupancy` | 回执与用电侧占用一致性核对 |
+
+前端在「用电核验与放行」页（`/power-receipts`，`PowerReceiptView.vue`）集中办理；
+「用电配置」工作台新增「出具核验回执」动作，「影音布置」工作台新增「登记试音完成」。
+
 领域：应用开发
 子方向：web前端/全栈开发

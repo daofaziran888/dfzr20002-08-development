@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from app.routers.resource import router as resource_router
 from app.routers.exhibition_routes import exhibition_router
+from app.routers.power_routes import router as power_router
 
 # Match fixed exhibition paths before /api/{module}/{entry_id}.
-ROUTERS = [exhibition_router, resource_router]
+ROUTERS = [power_router, exhibition_router, resource_router]

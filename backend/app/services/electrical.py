@@ -1,9 +1,14 @@
-"""用电配置领域服务：功率校验、展位负荷比对、断路器型号合规检查。"""
+"""用电配置领域服务：功率校验、展位负荷比对、断路器型号合规检查。
+
+用电配置本身只做即时容量核对；核验通过后通过「出具核验回执」动作把设计负荷、
+回路额定功率与核验结论固化为用电核验回执，供影音布置的调试放行回执关联。
+"""
 from __future__ import annotations
 
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services import power_receipt
 from app.store import store
 from app.services import exhibition
 
@@ -44,7 +49,35 @@ class ElectricalService(BaseModuleService):
                 result = exhibition.check_electrical_quota(booth_no)
                 if not result["ok"]:
                     return False, result["reason"]
+        elif action == "出具核验回执":
+            entry = store.find(self.MODULE, entry_id)
+            if entry is None:
+                return False, "用电回路不存在"
+            if entry.get("status") != "已确认":
+                return False, "回路尚未核验通过，不能出具用电核验回执"
+            circuit_no = str(entry.get("回路编号", ""))
+            occupying = power_receipt.active_release_for_circuit(circuit_no)
+            if occupying is not None:
+                return (
+                    False,
+                    f"回路 {circuit_no} 存在占用中的放行额度 {occupying.get('receipt_no')}，"
+                    "须先结清占用再重新出具回执",
+                )
         return True, ""
+
+    def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
+        if action == "出具核验回执":
+            result = power_receipt.issue_power_receipt(entry_id, operator="值班员")
+            if not result.get("ok"):
+                return None, result["reason"]
+            receipt = result["receipt"]
+            entry = store.find(self.MODULE, entry_id)
+            return entry, (
+                f"用电核验回执 {receipt['receipt_no']} 已出具（结论：{receipt['verification']}，"
+                f"设计负荷 {receipt['design_load_kw']:g}kW，"
+                f"回路总功率 {receipt['total_circuit_power_kw']:g}kW）"
+            )
+        return super().run_action(entry_id, action)
 
     def domain_snapshot(self) -> dict[str, Any]:
         base = super().domain_snapshot()
